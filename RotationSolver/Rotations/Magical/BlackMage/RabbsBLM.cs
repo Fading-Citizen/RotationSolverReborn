@@ -332,34 +332,47 @@ public sealed class Rabbs_BLM : BlackMageRotation
 	{
 		var maxAoeCount = 0;
 
-		if (!IsManual)
+		if (AllHostileTargets == null)
 		{
-			if (AllHostileTargets != null)
+			return 0;
+		}
+
+		// Only count enemies this player can actually damage (same filter as targeting:
+		// invincible, encounter immunity such as DMU Hero/Villain, blacklist...).
+		var attackable = new List<IBattleChara>();
+		foreach (var hostile in AllHostileTargets)
+		{
+			if (hostile.IsAttackable())
 			{
-				foreach (var centerTarget in AllHostileTargets)
-				{
-					if (centerTarget.DistanceToPlayer() >= action.Info.Range || !centerTarget.CanSee())
-					{
-						continue;
-					}
-
-					var currentAoeCount = 0;
-					foreach (var otherTarget in AllHostileTargets)
-					{
-						if (Vector3.Distance(centerTarget.Position, otherTarget.Position) < (action.Info.EffectRange + centerTarget.HitboxRadius))
-						{
-							currentAoeCount++;
-						}
-					}
-
-					maxAoeCount = Math.Max(maxAoeCount, currentAoeCount);
-				}
+				attackable.Add(hostile);
 			}
 		}
-		else if (AllHostileTargets != null && CurrentTarget != null) // Use action.Target.Target
+
+		if (!IsManual)
+		{
+			foreach (var centerTarget in attackable)
+			{
+				if (centerTarget.DistanceToPlayer() >= action.Info.Range || !centerTarget.CanSee())
+				{
+					continue;
+				}
+
+				var currentAoeCount = 0;
+				foreach (var otherTarget in attackable)
+				{
+					if (Vector3.Distance(centerTarget.Position, otherTarget.Position) < (action.Info.EffectRange + centerTarget.HitboxRadius))
+					{
+						currentAoeCount++;
+					}
+				}
+
+				maxAoeCount = Math.Max(maxAoeCount, currentAoeCount);
+			}
+		}
+		else if (CurrentTarget != null) // Use action.Target.Target
 		{
 			var count = 0;
-			foreach (var otherTarget in AllHostileTargets)
+			foreach (var otherTarget in attackable)
 			{
 				if (Vector3.Distance(CurrentTarget.Position, otherTarget.Position) < (action.Info.EffectRange + otherTarget.HitboxRadius))
 				{
