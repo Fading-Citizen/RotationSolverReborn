@@ -36,6 +36,9 @@ public sealed class Rabbs_BLM : BlackMageRotation
 	[Range(1, 3, ConfigUnitType.None, 1)]
 	public Potchoice Poterchoice { get; set; } = Potchoice.Never;
 
+	[RotationConfig(CombatType.PvE, Name = "Use 2-target cycle (Flare/Foul) at exactly 2 enemies (ignored when AoE usage is Off/Cleave)")]
+	public bool Use2TargetCycle { get; set; } = false;
+
 	public enum Openchoice : byte
 	{
 		[Description("Standard 5+7 Opener")] Standard,
@@ -369,6 +372,27 @@ public sealed class Rabbs_BLM : BlackMageRotation
 		return maxAoeCount;
 	}
 
+	/// <summary>
+	/// Flare target count used for rotation branching. Honors the engine AoE usage setting
+	/// (Off/Cleave => single target) and only allows the 2-target cycle when <see cref="Use2TargetCycle"/> is enabled.
+	/// </summary>
+	public int FlareAoeCount
+	{
+		get
+		{
+			var count = GetAoeCount(FlarePvE);
+			if (Service.Config.AoEType != ConfigTypes.AoEType.Full)
+			{
+				return Math.Min(count, 1);
+			}
+			if (count == 2 && !Use2TargetCycle)
+			{
+				return 1;
+			}
+			return count;
+		}
+	}
+
 	public bool ShouldTranspose
 	{
 		get
@@ -382,7 +406,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 			}
 			//var recentActions = RecordActions.Take(2);
 			//var lastAction = RecordActions.FirstOrDefault(); // Get the first (most recent) action, or null if the list is empty
-			if (GetAoeCount(FlarePvE) >= 2)
+			if (FlareAoeCount >= 2)
 			{
 				if (InUmbralIce)
 				{
@@ -395,13 +419,13 @@ public sealed class Rabbs_BLM : BlackMageRotation
 				if (InAstralFire)
 				{
 					//if (GetAoeCount(FlarePvE) >= 3 && AstralSoulStacks < 6 && !WillBeAbleToFlareStarMT && lastAction != null && (lastAction.Action.RowId == FoulPvE.ID || lastAction.Action.RowId == ThunderIiiPvE.ID || lastAction.Action.RowId == ParadoxPvE.ID))
-					if (GetAoeCount(FlarePvE) >= 2 && AstralSoulStacks < 6 && !WillBeAbleToFlareStarMT && (IsLastAction(true, FoulPvE) || IsLastAction(true, ThunderIiiPvE) || IsLastAction(true, ParadoxPvE)))
+					if (FlareAoeCount >= 2 && AstralSoulStacks < 6 && !WillBeAbleToFlareStarMT && (IsLastAction(true, FoulPvE) || IsLastAction(true, ThunderIiiPvE) || IsLastAction(true, ParadoxPvE)))
 					{
 						return true;
 					}
 				}
 			}
-			if (GetAoeCount(FlarePvE) == 1)
+			if (FlareAoeCount == 1)
 			{
 				if (InAstralFire)
 				{
@@ -433,7 +457,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 				if (DataCenter.PlayerSyncedLevel() < 99)
 				{
 
-					if (GetAoeCount(FlarePvE) >= 3)
+					if (FlareAoeCount >= 3)
 					{
 						if (DataCenter.PlayerSyncedLevel() >= 26 && DataCenter.PlayerSyncedLevel() <= 49)//If Thunder II needs to be refreshed, use the following to generate a fresh Thunderhead proc:Transpose->Fire II x3 > Transpose
 						{
@@ -504,7 +528,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 					}
 
 					//single target situation
-					if (GetAoeCount(FlarePvE) < 3)
+					if (FlareAoeCount < 3)
 					{
 						if (DataCenter.PlayerSyncedLevel() < 35)
 						{
@@ -729,7 +753,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 			}
 
 			//for aoe check if we need to use triple cast to save resources for umbral ice
-			if (GetAoeCount(FlarePvE) >= 3)
+			if (FlareAoeCount >= 3)
 			{
 				if (InAstralFire)
 				{
@@ -960,7 +984,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 			if (!InUmbralIce && !InAstralFire) // assume just starting dungeon or death
 			{
 
-				if (GetAoeCount(FlarePvE) >= 3)
+				if (FlareAoeCount >= 3)
 				{
 					if (CurrentMp == 10000)
 					{
@@ -987,7 +1011,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 						}
 					}
 				}
-				if (GetAoeCount(FlarePvE) < 3)
+				if (FlareAoeCount < 3)
 				{
 					if (CurrentMp == 10000)
 					{
@@ -1029,7 +1053,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 						return false;
 					}
 				}
-				if (GetAoeCount(FlarePvE) >= 3)
+				if (FlareAoeCount >= 3)
 				{
 
 					if (DataCenter.PlayerSyncedLevel() < 58)
@@ -1065,7 +1089,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 						return true;
 					}
 				}
-				if (GetAoeCount(FlarePvE) < 3)
+				if (FlareAoeCount < 3)
 				{
 
 					if (ParadoxPvE.CanUse(out act) && ParadoxPvEReady)
@@ -1137,7 +1161,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 				}
 				if ((!TransposePvE.Cooldown.IsCoolingDown || CurrentMp < 5000))
 				{
-					if (GetAoeCount(FlarePvE) >= 3 && !ShouldTransposeLowLevel)
+					if (FlareAoeCount >= 3 && !ShouldTransposeLowLevel)
 					{
 
 						if (FreezePvE.CanUse(out act, skipAoeCheck: true))
@@ -1150,7 +1174,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 							return true;
 						}
 					}
-					if (GetAoeCount(FlarePvE) < 3 && !ShouldTransposeLowLevel)
+					if (FlareAoeCount < 3 && !ShouldTransposeLowLevel)
 					{
 						if (BlizzardIvPvE.CanUse(out act) && IsSoulStacksMaxed)
 						{
@@ -1233,7 +1257,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 					}
 				}
 			}
-			if (GetAoeCount(FlarePvE) >= 3)
+			if (FlareAoeCount >= 3)
 
 			{
 				//astral is flare flare flarestar, umbral is freeze, always use foul or high thunder before transpose
@@ -1323,7 +1347,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 				}
 
 			}
-			if (GetAoeCount(FlarePvE) >= 2)
+			if (FlareAoeCount >= 2)
 
 			{
 				//astral is flare flare flarestar, umbral is freeze, always use foul or high thunder before transpose
@@ -1419,7 +1443,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 					}
 				}
 			}
-			if (GetAoeCount(FlarePvE) < 2)
+			if (FlareAoeCount < 2)
 			{
 				//single target section starts here
 				if (ThunderPvE.CanUse(out act) && ShouldThunder)
