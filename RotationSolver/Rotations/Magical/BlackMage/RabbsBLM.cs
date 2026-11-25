@@ -36,7 +36,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 	[Range(1, 3, ConfigUnitType.None, 1)]
 	public Potchoice Poterchoice { get; set; } = Potchoice.Never;
 
-	[RotationConfig(CombatType.PvE, Name = "Use 2-target cycle (Flare/Foul) at exactly 2 enemies (ignored when AoE usage is Off/Cleave)")]
+	[RotationConfig(CombatType.PvE, Name = "Use 2-target Flare/Transpose cycle (deprecated: 2 attackable targets now always use Fire IV, with Flare Star/Foul/Xeno cleaving)")]
 	public bool Use2TargetCycle { get; set; } = false;
 
 	public enum Openchoice : byte
@@ -337,12 +337,14 @@ public sealed class Rabbs_BLM : BlackMageRotation
 			return 0;
 		}
 
-		// Only count enemies this player can actually damage (same filter as targeting:
-		// invincible, encounter immunity such as DMU Hero/Villain, blacklist...).
+		// Only count enemies this player can actually damage. IsAttackable already
+		// includes HasInvincibleStatus and EncounterImmunity (DMU Hero/Villain),
+		// but we also exclude those explicitly so a top-priority boss that is
+		// immune/invulnerable can never inflate the Flare-cycle count.
 		var attackable = new List<IBattleChara>();
 		foreach (var hostile in AllHostileTargets)
 		{
-			if (hostile.IsAttackable())
+			if (IsValidAttackableTarget(hostile))
 			{
 				attackable.Add(hostile);
 			}
@@ -386,21 +388,49 @@ public sealed class Rabbs_BLM : BlackMageRotation
 	}
 
 	/// <summary>
+	/// True if this enemy can be damaged by the player: not invulnerable and not
+	/// encounter-immune (e.g. UMAD P3 Hero/Villain). Used for AoE counts and as a
+	/// CanUse targetFilter so spenders never primary-target an immune boss.
+	/// </summary>
+	private static bool IsValidAttackableTarget(IBattleChara? target)
+	{
+		return target != null
+			&& target.IsAttackable()
+			&& !target.HasInvincibleStatus()
+			&& !target.IsSpecialImmune();
+	}
+
+	/// <summary>
 	/// Flare target count used for rotation branching. Honors the engine AoE usage setting
-	/// (Off/Cleave => single target) and only allows the 2-target cycle when <see cref="Use2TargetCycle"/> is enabled.
+	/// (Off/Cleave => single target). The Flare/Transpose AoE cycle is only used with 3 or
+	/// more attackable targets. At 1-2 targets the single-target Fire IV cycle is used;
+	/// Flare Star, Foul and Xenoglossy still go to the attackable target and may cleave.
 	/// </summary>
 	public int FlareAoeCount
 	{
 		get
 		{
 			var count = GetAoeCount(FlarePvE);
-			if (Service.Config.AoEType != ConfigTypes.AoEType.Full)
+			if (Service.Config.AoEType != ConfigTypes.AoEType.Full || count < 3)
 			{
 				return Math.Min(count, 1);
 			}
-			if (count == 2 && !Use2TargetCycle)
+			return count;
+		}
+	}
+
+	/// <summary>
+	/// Attackable targets in Foul range, used to choose Foul (cleave) vs Xenoglossy.
+	/// Not collapsed by the 3-target Flare-cycle threshold.
+	/// </summary>
+	public int CleaveAoeCount
+	{
+		get
+		{
+			var count = GetAoeCount(FoulPvE);
+			if (Service.Config.AoEType == ConfigTypes.AoEType.Off)
 			{
-				return 1;
+				return Math.Min(count, 1);
 			}
 			return count;
 		}
@@ -1071,14 +1101,14 @@ public sealed class Rabbs_BLM : BlackMageRotation
 
 					if (DataCenter.PlayerSyncedLevel() < 58)
 					{
-						if (FoulPvE.CanUse(out act, skipAoeCheck: true))
+						if (FoulPvE.CanUse(out act, skipAoeCheck: true, targetFilter: IsValidAttackableTarget))
 						{
 							return true;
 						}
 
 						if (CurrentMp < FireIiPvE.Info.MPNeed)
 						{
-							if (FlarePvE.CanUse(out act, skipAoeCheck: true))
+							if (FlarePvE.CanUse(out act, skipAoeCheck: true, targetFilter: IsValidAttackableTarget))
 							{
 								return true;
 							}
@@ -1086,7 +1116,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 					}
 					if (DataCenter.PlayerSyncedLevel() >= 58)
 					{
-						if (FlarePvE.CanUse(out act, skipAoeCheck: true))
+						if (FlarePvE.CanUse(out act, skipAoeCheck: true, targetFilter: IsValidAttackableTarget))
 						{
 							return true;
 						}
@@ -1137,12 +1167,12 @@ public sealed class Rabbs_BLM : BlackMageRotation
 							}
 						}
 					}
-					if (XenoglossyPvE.CanUse(out act))
+					if (XenoglossyPvE.CanUse(out act, targetFilter: IsValidAttackableTarget))
 					{
 						return true;
 					}
 
-					if (FoulPvE.CanUse(out act))
+					if (FoulPvE.CanUse(out act, targetFilter: IsValidAttackableTarget))
 					{
 						return true;
 					}
@@ -1282,12 +1312,12 @@ public sealed class Rabbs_BLM : BlackMageRotation
 				if (InAstralFire)
 				{
 
-					if (FlareStarPvE.CanUse(out act))
+					if (FlareStarPvE.CanUse(out act, targetFilter: IsValidAttackableTarget))
 					{
 						return true;
 					}
 
-					if (FlarePvE.CanUse(out act, skipAoeCheck: true))
+					if (FlarePvE.CanUse(out act, skipAoeCheck: true, targetFilter: IsValidAttackableTarget))
 					{
 						return true;
 					}
@@ -1301,7 +1331,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 
 						if (WillHave2PolyglotWithin2GCDs)
 						{
-							if (FoulPvE.CanUse(out act, skipAoeCheck: true))
+							if (FoulPvE.CanUse(out act, skipAoeCheck: true, targetFilter: IsValidAttackableTarget))
 							{
 								return true;
 							}
@@ -1335,7 +1365,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 							return true;
 						}
 
-						if (FoulPvE.CanUse(out act, skipAoeCheck: true, usedUp: true))
+						if (FoulPvE.CanUse(out act, skipAoeCheck: true, usedUp: true, targetFilter: IsValidAttackableTarget))
 						{
 							return true;
 						}
@@ -1383,7 +1413,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 
 						if (WillHave2PolyglotWithin2GCDs)
 						{
-							if (FoulPvE.CanUse(out act, skipAoeCheck: true))
+							if (FoulPvE.CanUse(out act, skipAoeCheck: true, targetFilter: IsValidAttackableTarget))
 							{
 								return true;
 							}
@@ -1394,12 +1424,12 @@ public sealed class Rabbs_BLM : BlackMageRotation
 							return true;
 						}
 					}
-					if (FlareStarPvE.CanUse(out act))
+					if (FlareStarPvE.CanUse(out act, targetFilter: IsValidAttackableTarget))
 					{
 						return true;
 					}
 
-					if (FlarePvE.CanUse(out act, skipAoeCheck: true))
+					if (FlarePvE.CanUse(out act, skipAoeCheck: true, targetFilter: IsValidAttackableTarget))
 					{
 						return true;
 					}
@@ -1431,7 +1461,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 							return true;
 						}
 
-						if (FoulPvE.CanUse(out act, skipAoeCheck: true, usedUp: true))
+						if (FoulPvE.CanUse(out act, skipAoeCheck: true, usedUp: true, targetFilter: IsValidAttackableTarget))
 						{
 							return true;
 						}
@@ -1466,7 +1496,14 @@ public sealed class Rabbs_BLM : BlackMageRotation
 
 				if (ShouldXeno)
 				{
-					if (XenoglossyPvE.CanUse(out act, usedUp: ShouldXeno))
+					if (CleaveAoeCount >= 2)
+					{
+						if (FoulPvE.CanUse(out act, skipAoeCheck: true, targetFilter: IsValidAttackableTarget))
+						{
+							return true;
+						}
+					}
+					if (XenoglossyPvE.CanUse(out act, usedUp: ShouldXeno, targetFilter: IsValidAttackableTarget))
 					{
 						return true;
 					}
@@ -1490,7 +1527,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 								return true;
 							}
 
-							if (FlarePvE.CanUse(out act, skipAoeCheck: true))
+							if (FlarePvE.CanUse(out act, skipAoeCheck: true, targetFilter: IsValidAttackableTarget))
 							{
 								return true;
 							}
@@ -1513,7 +1550,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 					}
 					if (WillBeAbleToFlareStarMT && !WillBeAbleToFlareStarST)
 					{
-						if (FlarePvE.CanUse(out act, skipAoeCheck: true))
+						if (FlarePvE.CanUse(out act, skipAoeCheck: true, targetFilter: IsValidAttackableTarget))
 						{
 							return true;
 						}
@@ -1526,12 +1563,12 @@ public sealed class Rabbs_BLM : BlackMageRotation
 							return true;
 						}
 					}
-					if (FlareStarPvE.CanUse(out act))
+					if (FlareStarPvE.CanUse(out act, targetFilter: IsValidAttackableTarget))
 					{
 						return true;
 					}
 
-					if (FireIvPvE.CanUse(out act) && CurrentMp >= FireIvPvE.Info.MPNeed + (IsParadoxActive && AstralSoulStacks != 5 ? 1600 : 0))
+					if (FireIvPvE.CanUse(out act, targetFilter: IsValidAttackableTarget) && CurrentMp >= FireIvPvE.Info.MPNeed + (IsParadoxActive && AstralSoulStacks != 5 ? 1600 : 0))
 					{
 						return true;
 					}
@@ -1557,7 +1594,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 					{
 						if (PolyglotStacks > 0)
 						{
-							if (XenoglossyPvE.CanUse(out act, usedUp: true))
+							if (XenoglossyPvE.CanUse(out act, usedUp: true, targetFilter: IsValidAttackableTarget))
 							{
 								return true;
 							}
@@ -1612,7 +1649,7 @@ public sealed class Rabbs_BLM : BlackMageRotation
 					{
 						if (PolyglotStacks > 0)
 						{
-							if (XenoglossyPvE.CanUse(out act, usedUp: true))
+							if (XenoglossyPvE.CanUse(out act, usedUp: true, targetFilter: IsValidAttackableTarget))
 							{
 								return true;
 							}
@@ -1669,6 +1706,8 @@ public sealed class Rabbs_BLM : BlackMageRotation
 		ImGui.Text(" Player?.CurrentMp " + Player?.CurrentMp);
 		ImGui.Text("iscasting " + IsCasting);
 		ImGui.Text("FlareAoeNumber " + GetAoeCount(FlarePvE));
+		ImGui.Text("FlareAoeCount " + FlareAoeCount);
+		ImGui.Text("CleaveAoeCount " + CleaveAoeCount);
 		ImGui.Text("falre aoe range " + FlarePvE.Info.EffectRange);
 		ImGui.Text("Player.BaseCastTime " + Player?.BaseCastTime);
 		ImGui.Text("Player.CurrentCastTime) " + Player?.CurrentCastTime);
